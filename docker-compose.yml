@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  nginx-rtmp:
+    image: alqutami/rtmp-hls:latest
+    container_name: nginx-media-server
+    restart: always
+    ports:
+      - "80:80"
+      - "1935:1935"
+    volumes:
+      - ./nginx-simple.conf:/etc/nginx/nginx.conf
+      - ./html:/var/www/html
+      - ./hls:/www/static/hls
+      - ./dash:/www/static/dash
+      - ./recordings:/www/static/recordings
+      - nginx-logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/stat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - media-network
+
+  flv-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.flv
+    container_name: flv-proxy-server
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - nginx-rtmp
+    networks:
+      - media-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  nginx-logs:
+
+networks:
+  media-network:
+    driver: bridge
