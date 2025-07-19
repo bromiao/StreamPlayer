@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultra Low Latency Stream Player</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .video-container {
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        #videoElement {
+            width: 100%;
+            height: auto;
+            min-height: 400px;
+            display: block;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-hls {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-flv {
+            background: #2196F3;
+            color: white;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .status {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .latency-test {
+            background: #444;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .timer {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Ultra Low Latency Stream Player</h1>
+        
+        <div class="video-container">
+            <video id="videoElement" controls muted></video>
+        </div>
+        
+        <div class="controls">
+            <button class="btn btn-hls" onclick="playUltraLowHLS()">
+                📺 Play Ultra Low Latency HLS
+            </button>
+            <button class="btn btn-flv" onclick="playFLV()">
+                ⚡ Play FLV (Lowest Latency)
+            </button>
+        </div>
+        
+        <!-- Quality Controls -->
+        <div id="qualityControls" style="display: none; margin-bottom: 20px;">
+            <h3>🎯 Stream Quality</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
+                <button class="btn" onclick="switchQuality('auto')" style="background: #607D8B; color: white;">Auto</button>
+                <button class="btn" onclick="switchQuality('src')" style="background: #9C27B0; color: white;">Source</button>
+                <button class="btn" onclick="switchQuality('hd720')" style="background: #FF5722; color: white;">HD 720p</button>
+                <button class="btn" onclick="switchQuality('high')" style="background: #FF9800; color: white;">High</button>
+                <button class="btn" onclick="switchQuality('mid')" style="background: #FFC107; color: black;">Medium</button>
+                <button class="btn" onclick="switchQuality('low')" style="background: #4CAF50; color: white;">Low</button>
+            </div>
+        </div>
+        
+        <div class="status">
+            <h3>📊 Stream Status</h3>
+            <div class="status-item">
+                <span>Status:</span>
+                <span id="streamStatus">Ready</span>
+            </div>
+            <div class="status-item">
+                <span>Format:</span>
+                <span id="streamFormat">None</span>
+            </div>
+            <div class="status-item">
+                <span>Buffer Length:</span>
+                <span id="bufferLength">-</span>
+            </div>
+            <div class="status-item">
+                <span>Live Latency:</span>
+                <span id="liveLatency">-</span>
+            </div>
+        </div>
+        
+        <div class="latency-test">
+            <h3>⏱️ Latency Test</h3>
+            <p>Make a sudden movement or sound, then click the timer when you see/hear it in the stream:</p>
+            <div class="timer" id="latencyTimer">Click to start test</div>
+            <button class="btn" onclick="startLatencyTest()" style="margin-top: 10px;">Start Latency Test</button>
+        </div>
+        
+        <div id="messageContainer"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flv.js@latest"></script>
+    <script>
+        class UltraLowLatencyPlayer {
+            constructor() {
+                this.video = document.getElementById('videoElement');
+                this.currentPlayer = null;
+                this.baseUrl = 'http://13.113.238.113';
+                this.streamKey = '123';
+                this.latencyTestStart = null;
+                
+                this.initializeEventListeners();
+                this.startBufferMonitoring();
+            }
+
+            initializeEventListeners() {
+                this.video.addEventListener('playing', () => {
+                    document.getElementById('streamStatus').textContent = 'Playing';
+                });
+                
+                this.video.addEventListener('waiting', () => {
+                    document.getElementById('streamStatus').textContent = 'Buffering';
+                });
+                
+                this.video.addEventListener('error', (e) => {
+                    document.getElementById('streamStatus').textContent = 'Error';
+                    console.error('Video error:', e);
+                });
+            }
+
+            startBufferMonitoring() {
+                setInterval(() => {
+                    if (this.video.buffered.length > 0) {
+                        const buffered = this.video.buffered.end(this.video.buffered.length - 1);
+                        const bufferLength = buffered - this.video.currentTime;
+                        document.getElementById('bufferLength').textContent = `${bufferLength.toFixed(2)}s`;
+                        
+                        // 估算延时 (缓冲长度是延时的一个指标)
+                        if (this.currentPlayer && this.currentPlayer.latency !== undefined) {
+                            document.getElementById('liveLatency').textContent = `${this.currentPlayer.latency.toFixed(2)}s`;
+                        } else {
+                            document.getElementById('liveLatency').textContent = `~${(bufferLength + 2).toFixed(1)}s`;
+                        }
+                    }
+                }, 1000);
+            }
+
+            cleanup() {
+                if (this.currentPlayer) {
+                    try {
+                        if (this.currentPlayer.destroy) {
+                            this.currentPlayer.destroy();
+                        } else if (this.currentPlayer.unload) {
+                            this.currentPlayer.unload();
+                        }
+                    } catch (e) {
+                        console.warn('Error cleaning up player:', e);
+                    }
+                    this.currentPlayer = null;
+                }
+                this.video.src = '';
+                this.video.load();
+            }
+
+            playUltraLowHLS() {
+                this.cleanup();
+                // Start with master playlist for automatic quality selection
+                const videoSrc = `${this.baseUrl}/hls/${this.streamKey}.m3u8`;
+                
+                // Show quality controls
+                document.getElementById('qualityControls').style.display = 'block';
+                
+                if (Hls.isSupported()) {
+                    const hls = new Hls({
+                        // 超低延时配置
+                        lowLatencyMode: true,
+                        enableWorker: false,  // 禁用worker以减少延时
+                        
+                        // 缓冲区控制 - 极度激进
+                        maxBufferLength: 1,        // 最大缓冲1秒
+                        maxMaxBufferLength: 2,     // 最大缓冲上限2秒
+                        maxBufferSize: 1 * 1000 * 1000, // 1MB
+                        maxBufferHole: 0.1,        // 最大缓冲洞0.1秒
+                        
+                        // 直播同步设置
+                        liveSyncDurationCount: 1,  // 只保持1个片段同步
+                        liveMaxLatencyDurationCount: 2, // 最大延时2个片段
+                        liveDurationInfinity: false,
+                        
+                        // 分片加载优化
+                        manifestLoadingTimeOut: 1000,      // 1秒清单加载超时
+                        manifestLoadingMaxRetry: 1,        // 最多重试1次
+                        manifestLoadingRetryDelay: 100,    // 重试延时100ms
+                        
+                        // 片段加载优化
+                        fragLoadingTimeOut: 1000,          // 1秒片段加载超时
+                        fragLoadingMaxRetry: 1,            // 最多重试1次
+                        fragLoadingRetryDelay: 100,        // 重试延时100ms
+                        
+                        // 其他优化
+                        backBufferLength: 2,               // 后台缓冲2秒
+                        frontBufferFlushThreshold: 1,      // 前台缓冲刷新阈值
+                        
+                        debug: false
+                    });
+                    
+                    hls.loadSource(videoSrc);
+                    hls.attachMedia(this.video);
+                    this.currentPlayer = hls;
+                    document.getElementById('streamFormat').textContent = 'Ultra Low HLS';
+                    
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        console.log('HLS manifest loaded');
+                        this.video.play().catch(e => console.log('Autoplay blocked'));
+                    });
+                    
+                    hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                        console.log(`Fragment loaded: ${data.frag.duration}s`);
+                    });
+                    
+                    hls.on(Hls.Events.ERROR, (event, data) => {
+                        console.warn('HLS warning:', data);
+                        if (data.fatal) {
+                            console.error('Fatal HLS error:', data);
+                        }
+                    });
+                    
+                    // 强制跳到直播边缘
+                    hls.on(Hls.Events.LEVEL_LOADED, () => {
+                        if (hls.liveSyncPosition !== undefined) {
+                            this.video.currentTime = hls.liveSyncPosition;
+                        }
+                    });
+                    
+                } else {
+                    console.log('HLS not supported, trying native playback');
+                    this.video.src = videoSrc;
+                    document.getElementById('streamFormat').textContent = 'HLS (Native)';
+                }
+            }
+
+            switchQuality(quality) {
+                if (this.currentPlayer && this.currentPlayer.levels) {
+                    // Find the level index for the requested quality
+                    const levels = this.currentPlayer.levels;
+                    let targetLevel = -1; // -1 = auto
+                    
+                    if (quality !== 'auto') {
+                        for (let i = 0; i < levels.length; i++) {
+                            const level = levels[i];
+                            // Match bandwidth to quality mapping
+                            if ((quality === 'src' && level.bitrate >= 4000000) ||
+                                (quality === 'hd720' && level.bitrate >= 2000000 && level.bitrate < 4000000) ||
+                                (quality === 'high' && level.bitrate >= 1100000 && level.bitrate < 2000000) ||
+                                (quality === 'mid' && level.bitrate >= 400000 && level.bitrate < 1100000) ||
+                                (quality === 'low' && level.bitrate < 400000)) {
+                                targetLevel = i;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    this.currentPlayer.currentLevel = targetLevel;
+                    console.log(`Switched to quality: ${quality} (level ${targetLevel})`);
+                }
+            }
+
+            playFLV() {
+                this.cleanup();
+                this.currentQuality = null;
+                
+                // Hide quality controls for FLV
+                document.getElementById('qualityControls').style.display = 'none';
+                
+                const videoSrc = `${this.baseUrl}:8080/live/${this.streamKey}`;
+                
+                if (flvjs.isSupported()) {
+                    const flvPlayer = flvjs.createPlayer({
+                        type: 'flv',
+                        url: videoSrc,
+                        isLive: true,
+                        cors: true,
+                        withCredentials: false,
+                        hasAudio: true,
+                        hasVideo: true,
+                        // FLV低延时配置
+                        enableStashBuffer: false,  // 禁用stash缓冲
+                        stashInitialSize: undefined,
+                        enableWorker: false,       // 禁用worker
+                        lazyLoad: false,
+                        lazyLoadMaxDuration: 0,
+                        seekType: 'range',
+                        reuseRedirectedURL: true
+                    });
+                    
+                    flvPlayer.attachMediaElement(this.video);
+                    flvPlayer.load();
+                    this.currentPlayer = flvPlayer;
+                    document.getElementById('streamFormat').textContent = 'FLV (Ultra Low)';
+                    
+                    flvPlayer.on(flvjs.Events.LOADING_COMPLETE, () => {
+                        console.log('FLV stream loaded');
+                    });
+                    
+                    flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail) => {
+                        console.error('FLV error:', errorType, errorDetail);
+                    });
+                    
+                    this.video.play().catch(e => console.log('Autoplay blocked'));
+                } else {
+                    console.error('FLV not supported in this browser');
+                }
+            }
+        }
+
+        // 延时测试功能
+        let latencyTestInterval;
+        
+        function startLatencyTest() {
+            window.latencyTestStart = Date.now();
+            document.getElementById('latencyTimer').textContent = 'Watching for movement...';
+            document.getElementById('latencyTimer').onclick = stopLatencyTest;
+            document.getElementById('latencyTimer').style.cursor = 'pointer';
+            
+            // 显示计时器
+            latencyTestInterval = setInterval(() => {
+                const elapsed = ((Date.now() - window.latencyTestStart) / 1000).toFixed(1);
+                document.getElementById('latencyTimer').textContent = `${elapsed}s - Click when you see it!`;
+            }, 100);
+        }
+        
+        function stopLatencyTest() {
+            if (window.latencyTestStart) {
+                const latency = ((Date.now() - window.latencyTestStart) / 1000).toFixed(1);
+                clearInterval(latencyTestInterval);
+                document.getElementById('latencyTimer').textContent = `Measured Latency: ${latency}s`;
+                document.getElementById('latencyTimer').onclick = null;
+                document.getElementById('latencyTimer').style.cursor = 'default';
+                
+                // 5秒后重置
+                setTimeout(() => {
+                    document.getElementById('latencyTimer').textContent = 'Click to start test';
+                    document.getElementById('latencyTimer').onclick = startLatencyTest;
+                    document.getElementById('latencyTimer').style.cursor = 'pointer';
+                }, 5000);
+            }
+        }
+
+        // 初始化播放器
+        const player = new UltraLowLatencyPlayer();
+        
+        // 全局函数
+        function playUltraLowHLS() {
+            player.playUltraLowHLS();
+        }
+        
+        function playFLV() {
+            player.playFLV();
+        }
+        
+        function switchQuality(quality) {
+            player.switchQuality(quality);
+        }
+        
+        // 点击计时器开始测试
+        document.getElementById('latencyTimer').onclick = startLatencyTest;
+        document.getElementById('latencyTimer').style.cursor = 'pointer';
+    </script>
+</body>
+</html>

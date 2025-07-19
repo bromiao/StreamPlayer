@@ -1,0 +1,14 @@
+{
+  "name": "flv-proxy",
+  "version": "1.0.0",
+  "description": "FLV streaming proxy service",
+  "main": "flv-proxy.js",
+  "scripts": {
+    "start": "node flv-proxy.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "node-fetch": "^3.3.0"
+  }
+}
